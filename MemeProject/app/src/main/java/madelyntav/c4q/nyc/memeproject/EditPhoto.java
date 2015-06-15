@@ -1,8 +1,10 @@
 package madelyntav.c4q.nyc.memeproject;
 
-import android.widget.Button;
-import android.content.Context;
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationManager;
+import android.app.ProgressDialog;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -11,9 +13,11 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.support.v4.app.NotificationCompat;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.DragEvent;
@@ -21,13 +25,22 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
 import android.widget.Toast;
+
+import com.dropbox.client2.DropboxAPI;
+import com.dropbox.client2.android.AndroidAuthSession;
+import com.dropbox.client2.exception.DropboxException;
+import com.dropbox.client2.session.AppKeyPair;
+
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
@@ -36,10 +49,17 @@ import java.util.Date;
 
 
     public class EditPhoto extends Activity implements View.OnTouchListener, View.OnDragListener {
+        //Dropbox api key and secret
+        final static private String APP_KEY = "gezya64rii45ib9";
+        final static private String APP_SECRET = "v2yzdf88woc14ce";
+
+        // Dropbox OAuth v2
+        DropboxAPI<AndroidAuthSession> mDBApi;
 
 
         Bitmap b;
         Bitmap bitmap;
+        Bitmap image;
         public static ImageView imageView;
         private int color;
         private ColorPicker colorPicker;
@@ -63,6 +83,9 @@ import java.util.Date;
         protected void onCreate(Bundle savedInstanceState) {
             super.onCreate(savedInstanceState);
             setContentView(R.layout.activity_edit_photo);
+
+
+
 
             colorPicker = (ColorPicker) findViewById(R.id.colorPicker);
             imageView = (ImageView) findViewById(R.id.mImageView);
@@ -211,8 +234,14 @@ import java.util.Date;
                 });
 
 
+            // DropBox OAuth v2 continue...
+            AppKeyPair appKeys = new AppKeyPair(APP_KEY, APP_SECRET);
+            AndroidAuthSession session = new AndroidAuthSession(appKeys);
+            mDBApi = new DropboxAPI <AndroidAuthSession> (session);
 
-            }
+
+
+        }
 
         //----------------------------VANILLA AND DEMOTIVATIONAL METHODS--------------------------//
 
@@ -252,17 +281,85 @@ import java.util.Date;
 
         //onClick method for the save button. Calls other methods to create the save image function
         public void storeImage(View v) {
+            //  Dropbox - start the authentication flow.
+            // it will ask the user to authorize your app to access dropbox
+            mDBApi.getSession().startOAuth2Authentication(EditPhoto.this);
+
             editText.setHint("");
             editText2.setHint("");
             editText.setCursorVisible(false);
             editText2.setCursorVisible(false);
-            Bitmap image = getBitmapFromView(memeLayout);
-            File pictureFile = createImageFile();
-            addImageToFile(image, pictureFile);
+
+            image = getBitmapFromView(memeLayout);
+
             Toast.makeText(this, "Saved to gallery", Toast.LENGTH_SHORT).show();
 
+            b = getBitmapFromView(memeLayout);
+            File pictureFile = createImageFile();
+            addImageToFile(b, pictureFile);
+            UploadTask dropTask = new UploadTask();
+
+            //run UploadTask (AsyncTask)
+            dropTask.execute(pictureFile);
+        }
+
+//upload to dropbox...
+
+        private class UploadTask extends AsyncTask<File, Void, Void> {
+            /* runs in a background thread */
+            @Override
+            protected Void doInBackground(File... files) {
+                File file = files[0];
+
+                FileInputStream inputStream = null;
+                try {
+                    inputStream = new FileInputStream(file);
+                } catch (FileNotFoundException e) {
+                    e.printStackTrace();
+                }
+
+                DropboxAPI.Entry response = null;
+
+                try {
+                    response = mDBApi.putFile("/meme.png", inputStream,file.length(), null, null);
+                } catch (DropboxException e) {
+                    e.printStackTrace();
+                }
+
+               // Log.i("DbExampleLog", "The uploaded file's rev is: " + response.rev);
+                return null;
+            }
+
+            /* optional: runs in the UI thread */
+            protected void onProgressUpdate(Void bvoid) {
+                ProgressDialog progress = new ProgressDialog(EditPhoto.this);
+                progress.setMessage("Uploading photo ");
+                progress.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
+                progress.setIndeterminate(true);
+
+            }
+
+            /* runs in the UI thread, takes the return value from doInBackground(...) as input */
+            protected void onPostExecute(Void avoid) {
+
+                //once upload is done it will send the notofication with the image of the picture uploaded.
+
+                NotificationCompat.BigPictureStyle style = new NotificationCompat.BigPictureStyle();
+                style.bigPicture(image);
+                Notification notification = new NotificationCompat.Builder(EditPhoto.this)
+                        .setSmallIcon(R.drawable.ic_action_action_face_unlock)
+                        .setContentTitle(editText.getText().toString())
+                        .setContentText(editText2.getText().toString()+"  Upload is done!")
+                        .setStyle(style)
+                        .setAutoCancel(true)
+                        .build();
+
+                NotificationManager mNotificationManager = (NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE);
+                mNotificationManager.notify(0, notification);
+            }
 
         }
+
 
         /**
          * Create a File for saving an image
@@ -590,6 +687,23 @@ import java.util.Date;
 
         }
 
+
+        protected void onResume() {
+            super.onResume();
+
+            //Dropbox - Upon authentication, users are returned to the activity from which they came.
+
+            if (mDBApi.getSession().authenticationSuccessful()) {
+                try {
+                    // Required to complete auth, sets the access token on the session
+                    mDBApi.getSession().finishAuthentication();
+
+                    String accessToken = mDBApi.getSession().getOAuth2AccessToken();
+                } catch (IllegalStateException e) {
+                    Log.i("DbAuthLog", "Error authenticating", e);
+                }
+            }
+        }
 
     }
 
