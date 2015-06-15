@@ -50,8 +50,8 @@ import java.util.Date;
 
     public class EditPhoto extends Activity implements View.OnTouchListener, View.OnDragListener {
         //Dropbox api key and secret
-        final static private String APP_KEY = "gezya64rii45ib9";
-        final static private String APP_SECRET = "v2yzdf88woc14ce";
+        final static private String APP_KEY = "";
+        final static private String APP_SECRET = "";
 
         // Dropbox OAuth v2
         DropboxAPI<AndroidAuthSession> mDBApi;
